@@ -1,0 +1,51 @@
+function status {
+	local c=0
+	local v=''
+	[[ $1 = '-v' ]] && { v=yes; shift; }
+	echo ":: $1..."
+	shift
+	if test -n "$v"; then	"$@"
+	else			"$@" >/dev/null 2>&1
+	fi
+	c=$?
+	case $c in
+		(0)	echo "Cool";;
+		(*)	echo "Fail";;
+	esac
+	(exit $c)
+}
+
+function stop_all_daemons {
+	for d in "${DAEMONS[@]}"; do grep '^!.*$' <<<"$d" || "/etc/rc.d/$d" stop; done
+}
+
+function remount {
+	target=$1; shift
+	awk -v FS=' ' '{ if ($2 == "'"$target"'") system ("mount -o remount $( (. /etc/rc.d/functions; parse_mount_opts \"" $4 "\") )" $1 " " $2) }' </proc/self/mounts
+}
+
+function parse_mount_opts {
+	test "$1" = defaults && {
+		parse_mount_opts 'rw,suid,dev,exec,async'
+		return
+	}
+	echo "$1" | awk -v 'RS=,' '/remount|r[ow]|(a?|dir)sync|(no)?((dir|rel)?atime|dev|exec|suid|mand)/ { print ("-o " $0) }'
+	echo -n -- '-d '; echo "$1" | awk -v 'RS=,' -v 'ORS=,' '!/remount|r[ow]|(a?|dir)sync|(no)?((dir|rel)?atime|dev|exec|suid|mand)/ { print }' | sed -E 's/,$//'
+}
+
+# kill_all_wait signal_number tries
+function kill_all_wait {
+	killall5 -$1 >/dev/null 2>&1
+	for _ in $(seq 1 $2); do
+		sleep 0.25 # seconds
+		# use CONT as killall5 can not use zero signal
+		killall5 -18 >/dev/null 2>&1
+		test $? -eq 2 && return 0
+	done
+	return 1
+}
+
+function kill_all_usually {
+	status "Sending all processes the TERM signal" kill_all_wait 15 24
+	status "Sending all processes the KILL signal" kill_all_wait  9 48
+}
