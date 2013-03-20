@@ -1,0 +1,48 @@
+#!/bin/mksh
+
+. /etc/rc.conf
+. /etc/rc.d/functions
+. /etc/locale.conf
+
+export TZ LANG
+
+stop_all_daemons
+
+RANDOM_SEED=/var/lib/misc/random_seed
+POOLSIZE=$(test -r /proc/sys/kernel/random/poolsize ? awk '{ print $0/8 }' </proc/sys/kernel/random/poolsize : echo 512);
+function save_urandom_seed {
+	mkdir -p $(dirname "$RANDOM_SEED")
+	cat /dev/null >"$RANDOM_SEED"
+	chmod 0600 "$RANDOM_SEED"
+	dd if=/dev/urandom of="$RANDOM_SEED" count=1 bs=$POOLSIZE >/dev/null 2>&1
+}
+status "Saving urandom seed" save_urandom_seed
+
+# Write to utmp file while mounted
+halt -w
+
+grep '^[Yy]' <<<"$USELVM" && status "Stopping LVM2 monitor" vgchange --monitor n
+
+status "Stopping udev" udevadm control --exit
+
+kill_all_usually
+
+status "Unmounting swap-backed filesystems" awk -v FS=' ' -v t="$1" '{ if ($3 == "tmpfs") system ("umount " $2) }'					</proc/self/mounts
+status "Deactivating swap"                  swapoff $({ sed 1d | cut -d ' ' -f 1 } </proc/swaps)
+status "Unmounting non-API filesystems"     awk -v FS=' ' -v t="$1" '{ if (! match ($2, "/(proc|sys|run|dev|dev/pts)")) system ("umount " $2) }'	</proc/self/mounts
+
+test -f /etc/crypttab && awk '{ print $1, system ("cryptsetup remove " $1 " >/dev/null 2>&1") == 0 ? "Cool" : "Fail" }' </etc/crypttab
+
+grep '^[Yy]' <<<"$USELVM" && status "De-Activating LVM2 groups" vgchange --sysinit -a n >/dev/null 2>&1
+
+status "Re-Mounting root read-only" awk -v FS=' ' '{ if ($2 == "/") system ("mount -o remount,ro " $1 " " $2) }' </proc/self/mounts
+case $RUNLEVEL in
+	(0)	echo "HALT"
+		halt -dfhip
+		;;
+	(*)	echo "REBOOT"
+		# if kexec available and kernel loaded, use it
+		kexec -e >/dev/null 2>&1
+		reboot -dfi
+		;;
+esac

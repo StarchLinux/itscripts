@@ -1,0 +1,153 @@
+#!/bin/mksh
+
+. /etc/rc.conf
+. /etc/rc.d/functions
+. /etc/vconsole.conf
+. /etc/locale.conf
+
+export TZ LANG
+
+echo
+echo "Starch Linux"
+echo "http://starchlinux.org"
+echo
+
+awk '{
+	system ("mkdir -p " $1);
+	system ("mountpoint -q " $1 (index ($4, "n") ? " || mount " $1 " >/dev/null 2>&1" : "") " || mount $( (. /etc/rc.d/functions; parse_mount_opts \"" $3 "\") )" (index ($4, "n") ? " -n -t " : " -t ") $2 " _ " $1);
+}' <<EOF
+/proc		proc		nosuid,noexec,nodev
+/sys		sysfs		nosuid,noexec,nodev
+/run		tmpfs		mode=0755,nosuid,nodev
+/dev		devtmpfs	mode=0755,nosuid
+/dev/pts	devpts		mode=0620,gid=5,nosuid,noexec	n
+/dev/shm	tmpfs		mode=1777,nosuid,nodev		n
+EOF
+mkdir -p /run/lock && chmod 1777 /run/lock
+
+if ! test -e /run/initramfs/fsck-root; then
+	status "Mounting root read-only" remount / ro
+fi
+
+bootlogd -p /run/bootlogd.pid
+
+status "Adjusting system time, Setting kernel timezone" hwclock --systz
+
+status "Starting udevd" udevd --daemon
+
+function trigger_udev_events {
+	for x in subsystems devices; do
+		udevadm trigger --action=add --type=subsystems
+	done
+}
+status "Triggering udev events" trigger_udev_events
+
+# FIXME: hack modprobe so if we tell it to load no modules, it does so, with no error
+test ${#MODULES[@]} -eq 0 || status "Loading user-given modules" modprobe -ab "${MODULES[@]}"
+
+status "Waiting for udev events to be processed" udevadm settle
+
+function set_consoles {
+	for t in /dev/tty[0-9]*; do
+		kbd_mode -u <$t
+		awk 'BEGIN { print "\x1B%G" }' >$t
+	done
+	echo 1 >|/sys/module/vt/parameters/default_utf8
+}
+status "Setting consoles to UTF-8 mode" set_consoles
+
+test -n "$KEYMAP" && status "Loading keymap: $KEYMAP" loadkeys -q "$KEYMAP"
+
+function load_consolefont {
+	for t in /dev/tty[0-9]*; do
+		setfont "$CONSOLEFONT" -C $t >/dev/null 2>&1
+	done
+}
+test -n "$CONSOLEFONT" && status "Loading console font: $CONSOLEFONT" load_consolefont
+
+test -d /sys/class/net/lo && status "Bringing up loopback network interface" ip link set dev lo up
+
+grep '^[Yy]' <<<"$USEDMRAID" && status "Activating FakeRAIDs" dmraid -i -ay
+
+function activate_vgs {
+	grep '^[Yy]' <<<"$USELVM" && status "Activating LVM2 groups" vgchange --sysinit -a y >/dev/null
+}
+activate_vgs
+
+test -f /etc/crypttab && awk '
+BEGIN {
+	optflags["cipher"]	= "c";
+	optflags["size"]	= "s";
+	optflags["hash"]	= "h";
+	optflags["tries"]	= "T";
+	optflags["timeout"]	= "t";
+	optflags["verify"]	= "y";
+	optflags["read-only"]	= "r";
+}
+
+!/^#/ {
+	critical = 1;
+	flags = "";
+	split ($4, as, /,/);
+	for (a in as) {
+		n = index (a, "=");
+		if (n) o = substr (a, 1, n);
+		else   o = a;
+		if (o == "noauto") next; else
+		if (o == "nofail") critical = 0; else
+		flags = flags " -" optflags[o] " " (n ? substr (a, n, length (a)));
+	}
+	system ("cryptsetup" flags (NF >= 3 ? " -d " $3 : "") " luksOpen " $2 " " $1");
+}' </etc/crypttab
+
+status "Checking filesystems" fsck -ATC 1 -at "$(echo "$NETFS" | sed -E 's/(^|,)/&no/'),noopts=netdev" $(test -e /run/initramfs/root-fsck && echo -- -M)
+c=$?;
+(( (c | 33) == 33 )) || {
+	if (( $1 & 2 )); then
+		echo <<EOF
+********* REBOOT REQUIRED *********
+*                                 *
+* Automatic reboot in 15 seconds  *
+*                                 *
+***********************************
+EOF
+		sleep 15
+	else
+		echo <<EOF
+*****************  FILESYSTEM CHECK FAILED  ****************
+*                                                          *
+* Fix it and reboot.                                       *
+* / is mounted read-only.                                  *
+* When this shell quits, system will reboot automatically. *
+*                                                          *
+************************************************************
+EOF
+		sulogin -p
+	fi
+	echo "Rebooting automatically..."
+	umount $({ cut -d ' ' -f 2 | sort -r } </proc/self/mounts)
+	remount / ro
+	reboot -f
+}
+
+status "Re-Mounting root" remount /
+
+status "Mounting local filesystems" awk '{ if (match ($4, /(^|,)noauto(,|$)/) || $3 == "swap") next; system ("mount -t " $3 " $( (. /etc/rc.d/functions; parse_mount_opts \"" $4 "\") " $1 " " $2 ")") }' </etc/fstab
+
+grep '^[Yy]' <<<"$USELVM" && status "Starting LVM2 monitor" vgchange --monitor y >/dev/null
+
+status "Activating swap" awk '{ if ($3 == "swap") system ("swapon " $1) }'
+
+RANDOM_SEED=/var/lib/misc/random_seed
+test -f "$RANDOM_SEED" && status "Loading urandom seed" eval 'cat "$RANDOM_SEED" >/dev/urandom'
+
+test -s /etc/hostname && HOSTNAME=$(cat /etc/hostname)
+test -n "$HOSTNAME" && status "Setting hostname: $HOSTNAME" eval 'echo "$HOSTNAME" >|/proc/sys/kernel/hostname'
+
+function save_dmesg_log {
+	dmesg >>/var/log/dmesg.log
+	if test $(cat /proc/sys/kernel/dmesg_restrict) -ne 0; then	chmod 0600 /var/log/dmesg.log
+	else								chmod 0644 /var/log/dmesg.log
+	fi
+}
+status "Saving dmesg log" save_dmesg_log
