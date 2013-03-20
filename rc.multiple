@@ -1,0 +1,14 @@
+#!/bin/mksh
+#
+# multiple-user mode
+
+. /etc/rc.conf
+. /etc/rc.d/functions
+. /etc/locale.conf
+
+for x in "${DAEMONS[@]}"; do
+	grep -E '^!' <<<"$x" && continue
+	"/etc/rc.d/$x" start
+done
+
+test -x /etc/rc.local && /etc/rc.local

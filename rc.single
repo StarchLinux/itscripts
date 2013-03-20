@@ -1,0 +1,18 @@
+#!/bin/mksh
+#
+# single-user mode
+
+. /etc/rc.conf
+. /etc/rc.d/functions
+. /etc/locale.conf
+
+test $PREVLEVEL -eq N || {
+	stop_all_daemons
+
+	kill_all_usually
+}
+
+test $RUNLEVEL -eq 1 && {
+	kill -s HUP 1
+	exec init -t 1 S
+}
