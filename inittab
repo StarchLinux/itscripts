@@ -5,7 +5,7 @@
 #   6	Reboot
 
 # default level
-id:3:initdefault
+id:3:initdefault:
 
 rc::sysinit:/etc/rc.sysinit
 rs:S1:wait:/etc/rc.single
