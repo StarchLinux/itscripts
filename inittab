@@ -1,0 +1,25 @@
+# Levels:
+#   0	Halt
+#   1=S	Single-User
+#   3	Multiple-User
+#   6	Reboot
+
+# default level
+id:3:initdefault
+
+rc::sysinit:/etc/rc.sysinit
+rs:S1:wait:/etc/rc.single
+rm:2345:wait:/etc/rc.multiple
+rh:06:wait:/etc/rc.sysexit
+su:S:wait:/bin/login -- root
+
+c1:2345:respawn:/sbin/getty tty1
+c2:2345:respawn:/sbin/getty tty2
+c3:2345:respawn:/sbin/getty tty3
+c4:2345:respawn:/sbin/getty tty4
+c5:2345:respawn:/sbin/getty tty5
+
+# serial
+#s0:2345:respawn:/sbin/getty ttyS0
+
+ca::ctrlaltdel:/sbin/reboot
