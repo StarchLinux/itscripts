@@ -12,6 +12,8 @@ echo "Starch Linux"
 echo "http://starchlinux.org"
 echo
 
+mount -t tmpfs _ /tmp
+
 awk '{
 	system ("mkdir -p " $1);
 	system ("mountpoint -q " $1 (index ($4, "n") ? " || mount " $1 " >/dev/null 2>&1" : "") " || mount $( (. /etc/rc.d/functions; parse_mount_opts \"" $3 "\") )" (index ($4, "n") ? " -n -t " : " -t ") $2 " _ " $1);
