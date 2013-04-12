@@ -95,7 +95,7 @@ BEGIN {
 		if (o == "nofail") critical = 0; else
 		flags = flags " -" optflags[o] " " (n ? substr (a, n, length (a)));
 	}
-	system ("cryptsetup" flags (NF >= 3 ? " -d " $3 : "") " luksOpen " $2 " " $1");
+	system ("cryptsetup" flags (NF >= 3 ? " -d " $3 : "") " luksOpen " $2 " " $1);
 }' </etc/crypttab
 
 status "Checking filesystems" fsck -ATC 1 -at "$(echo "$NETFS" | sed -E 's/(^|,)/&no/'),noopts=netdev" $(test -e /run/initramfs/root-fsck && echo -- -M)
