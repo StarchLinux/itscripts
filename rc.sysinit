@@ -12,19 +12,15 @@ echo "Starch Linux"
 echo "http://starchlinux.org"
 echo
 
-mount -t tmpfs _ /tmp
+mkdir -p /tmp /proc /sys /run /dev /dev/pts /dev/shm
+mount -t tmpfs    _ /tmp
+mount -t proc     _ /proc
+mount -t sysfs    _ /sys
+mount -t tmpfs    _ /run
+mount -t devtmpfs _ /dev
+mount -t devpts   _ /dev/pts
+mount -t tmpfs    _ /dev/shm
 
-awk '{
-	system ("mkdir -p " $1);
-	system ("mountpoint -q " $1 (index ($4, "n") ? " || mount " $1 " >/dev/null 2>&1" : "") " || mount $( (. /etc/rc.d/functions; parse_mount_opts \"" $3 "\") )" (index ($4, "n") ? " -n -t " : " -t ") $2 " _ " $1);
-}' <<EOF
-/proc		proc		nosuid,noexec,nodev
-/sys		sysfs		nosuid,noexec,nodev
-/run		tmpfs		mode=0755,nosuid,nodev
-/dev		devtmpfs	mode=0755,nosuid
-/dev/pts	devpts		mode=0620,gid=5,nosuid,noexec	n
-/dev/shm	tmpfs		mode=1777,nosuid,nodev		n
-EOF
 mkdir -p /run/lock && chmod 1777 /run/lock
 
 if ! test -e /run/initramfs/fsck-root; then
