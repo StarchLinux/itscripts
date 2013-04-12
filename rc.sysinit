@@ -120,7 +120,7 @@ EOF
 *                                                          *
 ************************************************************
 EOF
-		sulogin -p
+		login -- root
 	fi
 	echo "Rebooting automatically..."
 	umount $(cat /proc/self/mounts | cut -d ' ' -f 2 | sort -r)
